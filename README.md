@@ -27,7 +27,7 @@ If you prefer a simple windowed interface, start the program with the `--gui` fl
 ```powershell
 python timer.py --gui
 # or just
-python timer.py
+python.timer.py
 ```
 
 A small Tkinter window will appear allowing you to enter seconds and click **Start**.  The display updates live and beeps when finished.
