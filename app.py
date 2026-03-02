@@ -19,11 +19,19 @@ def server_countdown(seconds: int):
         while state['remaining'] > 0:
             time.sleep(1)
             state['remaining'] -= 1
-        # play beep on the host (Windows winsound if available)
+        # play a bark-like sound on the host (Windows winsound if available)
         if winsound:
-            for _ in range(3):
-                winsound.Beep(1000, 500)
-                time.sleep(0.2)
+            def host_bark():
+                try:
+                    winsound.Beep(900, 140)
+                    winsound.Beep(1200, 100)
+                    winsound.Beep(700, 160)
+                except Exception:
+                    pass
+            # two quick barks
+            host_bark()
+            time.sleep(0.18)
+            host_bark()
     finally:
         state['running'] = False
         state['remaining'] = 0
