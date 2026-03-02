@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Time Buzzer</title>
+  <style>
+    body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Arial; display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; background:#f7f7fb; }
+    .card { background:white; padding:20px 24px; border-radius:10px; box-shadow:0 6px 18px rgba(20,20,50,0.08); width:320px; text-align:center }
+    input[type="number"] { width:100%; padding:8px 10px; font-size:16px; margin-bottom:12px; box-sizing:border-box }
+    .time { font-size:42px; font-weight:600; margin:8px 0 16px }
+    button { padding:8px 12px; margin:0 6px; font-size:15px; border-radius:6px; border:0; cursor:pointer }
+    .btn-start { background:#2563eb; color:white }
+    .btn-pause { background:#f59e0b; color:white }
+    .btn-reset { background:#ef4444; color:white }
+    .muted { opacity:0.6 }
+    small { color:#666 }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Time Buzzer</h2>
+    <label for="seconds">Duration (seconds)</label>
+    <input id="seconds" type="number" min="0" value="60" />
+    <div class="time" id="display">00:00</div>
+    <div>
+      <button id="start" class="btn-start">Start</button>
+      <button id="pause" class="btn-pause muted">Pause</button>
+      <button id="reset" class="btn-reset muted">Reset</button>
+      <button id="start-server" style="margin-left:8px; background:#10b981; color:#fff; border-radius:6px; padding:8px 10px;">Start Server Timer</button>
+    </div>
+    <p><small>Uses WebAudio beep (1000Hz) when finished.</small></p>
+  </div>
+
+  <script>
+    const input = document.getElementById('seconds');
+    const display = document.getElementById('display');
+    const startBtn = document.getElementById('start');
+    const pauseBtn = document.getElementById('pause');
+    const resetBtn = document.getElementById('reset');
+
+    let total = Number(input.value) || 60;
+    let remaining = total;
+    let intervalId = null;
+    let paused = false;
+
+    function formatTime(s){
+      const m = Math.floor(s/60).toString().padStart(2,'0');
+      const sec = (s%60).toString().padStart(2,'0');
+      return `${m}:${sec}`;
+    }
+
+    function updateDisplay(){ display.textContent = formatTime(remaining); }
+
+    function beep(times=3, freq=1000, ms=500, gap=200){
+      try{
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        let i = 0;
+        function once(){
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.type = 'sine';
+          o.frequency.value = freq;
+          o.connect(g); g.connect(ctx.destination);
+          o.start();
+          g.gain.setValueAtTime(0.0001, ctx.currentTime);
+          g.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.01);
+          setTimeout(()=>{ g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.01); o.stop();
+            i++; if(i<times) setTimeout(once, gap);
+          }, ms);
+        }
+        once();
+      }catch(e){ console.warn('Beep failed:', e); }
+    }
+
+    function startTimer(){
+      if(intervalId) return;
+      if(!paused){
+        total = Math.max(0, parseInt(input.value) || 0);
+        remaining = total;
+      }
+      if(remaining <= 0){ updateDisplay(); beep(); return; }
+      input.disabled = true; startBtn.disabled = true; pauseBtn.classList.remove('muted'); resetBtn.classList.remove('muted');
+      intervalId = setInterval(()=>{
+        if(remaining > 0){ remaining--; updateDisplay(); }
+        else { clearInterval(intervalId); intervalId = null; startBtn.disabled = false; input.disabled = false; pauseBtn.classList.add('muted'); beep(); }
+      }, 1000);
+    }
+
+    function pauseTimer(){
+      if(!intervalId) return;
+      clearInterval(intervalId); intervalId = null; paused = true; startBtn.disabled = false; pauseBtn.classList.add('muted');
+    }
+
+    function resetTimer(){
+      if(intervalId){ clearInterval(intervalId); intervalId = null; }
+      paused = false; input.disabled = false; startBtn.disabled = false; pauseBtn.classList.add('muted'); resetBtn.classList.add('muted');
+      total = Math.max(0, parseInt(input.value) || 0);
+      remaining = total; updateDisplay();
+    }
+
+    // wire up
+    updateDisplay();
+    startBtn.addEventListener('click', ()=>{ paused = false; startTimer(); });
+    pauseBtn.addEventListener('click', ()=>{ pauseTimer(); });
+    resetBtn.addEventListener('click', ()=>{ resetTimer(); });
+    input.addEventListener('change', ()=>{ if(!intervalId){ total = Math.max(0, parseInt(input.value)||0); remaining = total; updateDisplay(); } });
+
+    // Server controls
+    const serverBtn = document.getElementById('start-server');
+    const serverStatus = document.createElement('div');
+    serverStatus.style.marginTop = '10px';
+    serverStatus.style.fontSize = '13px';
+    serverStatus.textContent = 'Server: unreachable';
+    document.querySelector('.card').appendChild(serverStatus);
+
+    serverBtn.addEventListener('click', async ()=>{
+      const secs = Math.max(0, parseInt(input.value)||0);
+      try{
+        const res = await fetch(`/start`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({seconds: secs})});
+        const j = await res.json();
+        if(res.ok) serverStatus.textContent = `Server: started (${secs}s)`;
+        else serverStatus.textContent = `Server: ${j.error || j.status || 'error'}`;
+      }catch(e){ serverStatus.textContent = 'Server: unreachable'; }
+    });
+
+    // poll server status (if available)
+    setInterval(async ()=>{
+      try{
+        const res = await fetch('/status');
+        if(!res.ok) throw new Error('no');
+        const j = await res.json();
+        serverStatus.textContent = j.running ? `Server: running (${j.remaining}s)` : 'Server: idle';
+      }catch(e){ serverStatus.textContent = 'Server: unreachable'; }
+    }, 1000);
+
+  </script>
+</body>
+</html>
